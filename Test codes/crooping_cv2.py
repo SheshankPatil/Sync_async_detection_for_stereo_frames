@@ -4,8 +4,10 @@ import matplotlib.pyplot as plt
 import os
 
 # Define the paths for the main image and the template image
-main_image_path = 'final/cropping_model/4.png'  # Change this to your local main image path
-template_image_path = 'final/cropped_data/1.png'  # Change this to your local template image path
+main_image_path = 'Test dataset/Left_Camera/captured_0_frame_0028.png'  # Change this to your local main image path
+template_image_path = 'Test dataset/crooped.png'  # Change this to your local template image path
+
+
 
 # Load the main image
 main_image = cv2.imread(main_image_path)
@@ -26,7 +28,7 @@ template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
 result = cv2.matchTemplate(main_gray, template_gray, cv2.TM_CCOEFF_NORMED)
 
 # Define a threshold to consider a match
-threshold = 0.87
+threshold = 0.46
 
 # Find locations where the result is above the threshold
 locations = np.where(result >= threshold)

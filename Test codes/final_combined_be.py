@@ -4,8 +4,8 @@ import numpy as np
 from PIL import Image
 
 # Define two input image paths
-image_path1 = 'output/matched_region.png'  # Replace with your first image path
-image_path2 = 'output/matched_region.png'  # Replace with your second image path
+image_path1 = 'Test dataset/crooped_template.png'  # Replace with your first image path
+image_path2 = 'Test dataset/crooped_template.png'  # Replace with your second image path
 
 # Red color threshold ranges (in HSV space)
 lower_bright_red1 = np.array([0, 150, 150])  # Lower bound for red hue near 0°
