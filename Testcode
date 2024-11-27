@@ -1,0 +1,159 @@
+	import cv2
+import vpi
+import numpy as np
+import os
+from PIL import Image
+
+# Define the paths for the main images and the template image
+main_image_paths = [
+    'final/cropping_model/4.png',  # First main image path
+    'final/cropping_model/5.png'   # Second main image path
+]
+template_image_path = 'final/cropped_data/1.png'  # Template image path
+
+# Template matching section
+def template_matching(main_image_path, template, output_prefix, output_dir):
+    # Load the main image
+    main_image = cv2.imread(main_image_path)
+    if main_image is None:
+        print(f"Error: Could not load the main image at {main_image_path}.")
+        return None
+
+    # Convert the main image and template to grayscale
+    main_gray = cv2.cvtColor(main_image, cv2.COLOR_BGR2GRAY)
+    template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+
+    # Perform template matching
+    result = cv2.matchTemplate(main_gray, template_gray, cv2.TM_CCOEFF_NORMED)
+
+    # Define a threshold to consider a match
+    threshold = 0.87
+
+    # Find locations where the result is above the threshold
+    locations = np.where(result >= threshold)
+
+    # If there are no matches, return None
+    if len(locations[0]) == 0:
+        print(f"No match found for image {main_image_path}")
+        return None
+
+    # Extract the first matched region
+    top_left = (locations[1][0], locations[0][0])
+    bottom_right = (top_left[0] + template.shape[1], top_left[1] + template.shape[0])
+    matched_region = main_image[top_left[1]:bottom_right[1], top_left[0]:bottom_right[0]]
+
+    # Resize the matched region to the specified dimensions (1920x1080)
+    output_width, output_height = 1920, 1080
+    resized_matched_region = cv2.resize(matched_region, (output_width, output_height))
+
+    # Save the resized matched region to a file in the output directory
+    output_path = os.path.join(output_dir, f'{output_prefix}_matched_region.png')
+    cv2.imwrite(output_path, resized_matched_region)
+    return output_path
+
+# Background elimination and contour detection with VPI
+def process_image_vpi(image_path, output_prefix):
+    # Load the input image
+    input_image = cv2.imread(image_path)
+    if input_image is None:
+        raise ValueError(f"Error loading image: {image_path}")
+
+    # Convert the image to VPI format
+    with vpi.Backend.CUDA:
+        input_vpi = vpi.asimage(input_image, format=vpi.Format.BGR8)
+
+        # --- Red Region Detection ---
+        # Convert to HSV using VPI
+        hsv_vpi = input_vpi.convert(vpi.Format.HSV8)
+        hsv_np = hsv_vpi.cpu()
+
+        # Define thresholds for red regions
+        lower_red1 = np.array([0, 150, 150])
+        upper_red1 = np.array([10, 255, 255])
+        lower_red2 = np.array([170, 150, 150])
+        upper_red2 = np.array([180, 255, 255])
+
+        # Create red masks using OpenCV
+        mask_red1 = cv2.inRange(hsv_np, lower_red1, upper_red1)
+        mask_red2 = cv2.inRange(hsv_np, lower_red2, upper_red2)
+        red_mask = cv2.bitwise_or(mask_red1, mask_red2)
+
+        # --- Bright/White Region Detection ---
+        # Convert to grayscale using VPI
+        gray_vpi = input_vpi.convert(vpi.Format.Y8)
+        gray_np = gray_vpi.cpu()
+
+        # Threshold to isolate white regions
+        _, white_mask = cv2.threshold(gray_np, 200, 255, cv2.THRESH_BINARY)
+
+        # Combine red and white masks
+        combined_mask = cv2.bitwise_or(red_mask, white_mask)
+
+        # Apply the combined mask to the input image
+        result_image = cv2.bitwise_and(input_image, input_image, mask=combined_mask)
+
+        # --- Contour Detection ---
+        contours_red, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours_white, _ = cv2.findContours(white_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        # Draw contours on the result image
+        output_image = input_image.copy()
+        cv2.drawContours(output_image, contours_red, -1, (0, 0, 255), 2)  # Red contours
+        cv2.drawContours(output_image, contours_white, -1, (0, 255, 0), 2)  # White contours
+
+        # Save the output image with contours
+        output_path = f'{output_prefix}_contours.png'
+        cv2.imwrite(output_path, output_image)
+
+        # Return contour counts and the output image path
+        red_count = len(contours_red)
+        white_count = len(contours_white)
+        return red_count, white_count, output_path
+
+# Main processing
+output_dir = 'output'
+os.makedirs(output_dir, exist_ok=True)
+
+# Load the template image
+template = cv2.imread(template_image_path)
+if template is None:
+    print("Error: Could not load the template image.")
+    exit()
+
+# Process each main image
+contour_results = []
+for i, main_image_path in enumerate(main_image_paths):
+    prefix = f'image_{i + 1}'
+
+    # Step 1: Template matching
+    matched_image_path = template_matching(main_image_path, template, prefix, output_dir)
+    if matched_image_path is None:
+        continue
+
+    # Step 2: Background elimination and contour detection using VPI
+    red_count, white_count, contour_image_path = process_image_vpi(matched_image_path, prefix)
+    contour_results.append((red_count + white_count, contour_image_path))
+
+# Compare the results
+if len(contour_results) == 2:
+    total_count1, contour_image1 = contour_results[0]
+    total_count2, contour_image2 = contour_results[1]
+
+    if total_count1 == total_count2:
+        print("Sync")
+    else:
+        print("Async")
+
+    # Show contour images side by side
+    image1 = cv2.imread(contour_image1)
+    image2 = cv2.imread(contour_image2)
+    combined_output = np.hstack((image1, image2))
+    cv2.imshow('Contour Comparison', combined_output)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+    # Save the combined output
+    combined_output_path = os.path.join(output_dir, 'contour_comparison.png')
+    cv2.imwrite(combined_output_path, combined_output)
+else:
+    print("Not enough processed images for comparison.")
