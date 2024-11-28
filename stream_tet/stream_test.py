@@ -18,6 +18,10 @@ upper_bright_red2 = np.array([180, 255, 255])  # Upper bound for red hue near 18
 # Grayscale threshold for white regions
 threshold_value = 200  # Threshold to isolate white regions
 
+# Ensure the results folder exists
+results_folder = 'results'
+os.makedirs(results_folder, exist_ok=True)
+
 # Function to process the image and save output (background elimination step)
 def process_image(image_path, output_prefix):
     with vpi.Backend.CUDA:
@@ -55,26 +59,13 @@ def process_image(image_path, output_prefix):
         # Step 7: Apply the combined mask to the input image using bitwise_and
         result_image = cv2.bitwise_and(input_np, input_np, mask=combined_mask)
 
-        # Step 8: Save the result as a PNG file (using OpenCV)
-        output_image_path = f'output/{output_prefix}_red_and_white_regions.png'
-        cv2.imwrite(output_image_path, result_image)
-
-        # Show the image with red and white regions in real-time
-        cv2.imshow(f'Red and White Regions: {output_prefix}', result_image)
-        cv2.waitKey(0)  # Wait indefinitely for the user to press any key to continue
-        return output_image_path  # Return the path for further processing
+        return result_image
 
 
 # Function to process an image for contour detection (using background-eliminated images)
-def process_image_for_contours(image_path):
-    # Load the input image (background eliminated)
-    input_image = cv2.imread(image_path)
-
-    if input_image is None:
-        raise ValueError(f"Error loading image: {image_path}")
-
+def process_image_for_contours(image):
     # --- Red Region Detection ---
-    hsv_image = cv2.cvtColor(input_image, cv2.COLOR_BGR2HSV)
+    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
     # Create masks for red color ranges
     mask_red1 = cv2.inRange(hsv_image, lower_bright_red1, upper_bright_red1)
@@ -87,7 +78,7 @@ def process_image_for_contours(image_path):
     contours_red, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     # --- Bright/White Region Detection ---
-    grayscale_image = cv2.cvtColor(input_image, cv2.COLOR_BGR2GRAY)
+    grayscale_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
     # Threshold the image to isolate bright areas (white regions)
     _, binary_thresh = cv2.threshold(grayscale_image, threshold_value, 255, cv2.THRESH_BINARY)
@@ -95,28 +86,16 @@ def process_image_for_contours(image_path):
     # Find contours of the bright regions
     contours_white, _ = cv2.findContours(binary_thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    # Create a copy of the original image to draw contours
-    output_image = input_image.copy()
-
-    # Draw red contours (for red regions) in red color
-    cv2.drawContours(output_image, contours_red, -1, (0, 0, 255), 2)  # Red color for contours
-
-    # Draw white contours (for bright regions) in green color
-    cv2.drawContours(output_image, contours_white, -1, (0, 255, 0), 2)  # Green color for contours
+    # Draw contours on the image
+    output_image = image.copy()
+    cv2.drawContours(output_image, contours_red, -1, (0, 0, 255), 2)  # Red contours
+    cv2.drawContours(output_image, contours_white, -1, (0, 255, 0), 2)  # White contours
 
     # Count red and white regions
     red_region_count = len(contours_red)
     white_region_count = len(contours_white)
 
-    # Show the contours image in real-time
-    cv2.imshow(f'Contours Image', output_image)
-    cv2.waitKey(0)  # Wait indefinitely for the user to press any key to continue
-
-    # Save the output image
-    output_image_path = image_path.replace(".png", "_contours.png")
-    cv2.imwrite(output_image_path, output_image)
-
-    return red_region_count, white_region_count, output_image_path
+    return red_region_count, white_region_count, output_image
 
 
 # Main function to process two folders (left and right)
@@ -134,33 +113,31 @@ def process_folders(left_folder_path, right_folder_path):
         return
 
     for i, (left_file, right_file) in enumerate(zip(left_image_files, right_image_files)):
-        # Ensure filenames match
         left_image_path = os.path.join(left_folder_path, left_file)
         right_image_path = os.path.join(right_folder_path, right_file)
 
-        left_prefix = f'{os.path.splitext(left_file)[0]}'
-        right_prefix = f'{os.path.splitext(right_file)[0]}'
-
         print(f"Processing left: {left_file} and right: {right_file}...")
 
-        # Step 1: Background elimination
-        left_output_image_path = process_image(left_image_path, left_prefix)
-        right_output_image_path = process_image(right_image_path, right_prefix)
+        # Background elimination
+        left_result = process_image(left_image_path, f'left_{i}')
+        right_result = process_image(right_image_path, f'right_{i}')
 
-        # Step 2: Contour detection
-        left_red_count, left_white_count, left_contours_path = process_image_for_contours(left_output_image_path)
-        right_red_count, right_white_count, right_contours_path = process_image_for_contours(right_output_image_path)
+        # Contour detection
+        left_red_count, left_white_count, left_contours = process_image_for_contours(left_result)
+        right_red_count, right_white_count, right_contours = process_image_for_contours(right_result)
 
-        print(f"Left {left_file} - Red regions: {left_red_count}, White regions: {left_white_count}, Total: {left_red_count + left_white_count}")
-        print(f"Right {right_file} - Red regions: {right_red_count}, White regions: {right_white_count}, Total: {right_red_count + right_white_count}")
-        print(f"Left contours saved at: {left_contours_path}")
-        print(f"Right contours saved at: {right_contours_path}")
+        # Combine images for comparison
+        combined_result = np.hstack((left_contours, right_contours))
 
-        # Compare results
-        if (left_red_count + left_white_count) == (right_red_count + right_white_count):
-            print("Sync")
-        else:
-            print("Async")
+        # Add text to indicate sync or async
+        comparison_status = "Sync" if (left_red_count + left_white_count) == (right_red_count + right_white_count) else "Async"
+        cv2.putText(combined_result, f"Status: {comparison_status}", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
+        # Save combined image
+        output_image_path = os.path.join(results_folder, f'comparison_{i}_{comparison_status}.png')
+        cv2.imwrite(output_image_path, combined_result)
+
+        print(f"Comparison result saved at: {output_image_path}")
 
     print("All images processed!")
 
@@ -175,3 +152,4 @@ print(f"Execution Time: {end_time - start_time:.2f} seconds")
 
 # Clean up and close any open windows
 cv2.destroyAllWindows()
+
