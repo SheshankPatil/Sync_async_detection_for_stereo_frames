@@ -113,13 +113,16 @@ def process_images_in_folder(folder_path):
         # Concatenate images horizontally
         combined_image = cv2.hconcat([left_image, right_image])
 
+        # Resize the combined image to 1920x1080
+        combined_image_resized = cv2.resize(combined_image, (1920, 1080))
+
         # Add label for Sync/Async based on contour comparison
         label = "Sync" if total_left == total_right else "Async"
         font = cv2.FONT_HERSHEY_SIMPLEX
-        cv2.putText(combined_image, label, (10, 50), font, 1, (0, 255, 0) if label == "Sync" else (0, 0, 255), 2)
+        cv2.putText(combined_image_resized, label, (10, 50), font, 1, (0, 255, 0) if label == "Sync" else (0, 0, 255), 2)
         
         # Save the result
-        cv2.imwrite(comparison_output_path, combined_image)
+        cv2.imwrite(comparison_output_path, combined_image_resized)
 
         print(f"Result: {label}. Comparison saved at: {comparison_output_path}")
 

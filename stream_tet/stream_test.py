@@ -108,7 +108,7 @@ def process_images_in_folder(folder_path):
 
 
 # Call the function with your folder path
-folder_path = 'Cropped_data'
+folder_path = 'Cropped_data/cropped_data'
 os.makedirs('results', exist_ok=True)
 process_images_in_folder(folder_path)
 
